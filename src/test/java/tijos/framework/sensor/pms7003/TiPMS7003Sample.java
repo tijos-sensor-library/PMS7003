@@ -4,7 +4,7 @@ import java.io.IOException;
 
 import tijos.framework.devicecenter.TiGPIO;
 import tijos.framework.devicecenter.TiUART;
-import tijos.util.Delay;
+import tijos.framework.util.Delay;
 
 /**
  * Plantower PMS7003 Dust Sensor Sample
@@ -12,7 +12,7 @@ import tijos.util.Delay;
  */
 public class TiPMS7003Sample {
 	public static void main(String[] args) {
-
+ 
 		int gpioPort0 = 0;
 		int gpioPin0 = 0;
 
@@ -24,7 +24,7 @@ public class TiPMS7003Sample {
 			TiGPIO gpio0 = TiGPIO.open(gpioPort0, gpioPin0);
 			TiUART uart = TiUART.open(uartPort);
 
-			uart.setMode(9600, 8, 1, TiUART.MODE_PARITY_NONE);
+			uart.setWorkParameters(8, 1, TiUART.PARITY_NONE, 9600);
 
 			TiPMS7003 pms = new TiPMS7003(uart, gpio0, gpioPin0);
 

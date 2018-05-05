@@ -4,8 +4,8 @@ import java.io.IOException;
 
 import tijos.framework.devicecenter.TiGPIO;
 import tijos.framework.devicecenter.TiUART;
-import tijos.util.BigBitConverter;
-import tijos.util.Delay;
+import tijos.framework.util.BigBitConverter;
+import tijos.framework.util.Delay;
 
 /**
  * Plantower PMS7003 dust sensor driver for TiJOS
@@ -57,7 +57,7 @@ public class TiPMS7003 {
 	 * @throws IOException
 	 */
 	public void initialize() throws IOException {
-		this.gpioPort.setPinMode(gpioSetPin, TiGPIO.MODE_OUTPUT_PP, TiGPIO.MODE_PULL_NONE);
+		this.gpioPort.setWorkMode(gpioSetPin, TiGPIO.OUTPUT_PP);
 	}
 
 	/**
