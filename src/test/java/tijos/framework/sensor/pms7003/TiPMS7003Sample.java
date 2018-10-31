@@ -14,10 +14,12 @@ public class TiPMS7003Sample {
 	public static void main(String[] args) {
  
 		int gpioPort0 = 0;
-		int gpioPin0 = 0;
+		int gpioPin0 = 1;
 
 		int uartPort = 0;
 
+		System.out.println("Hello PMS7003");
+		
 		try {
 
 			// Open UART and GPIO

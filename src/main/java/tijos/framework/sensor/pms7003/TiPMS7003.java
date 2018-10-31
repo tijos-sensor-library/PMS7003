@@ -1,11 +1,14 @@
 package tijos.framework.sensor.pms7003;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 
 import tijos.framework.devicecenter.TiGPIO;
 import tijos.framework.devicecenter.TiUART;
 import tijos.framework.util.BigBitConverter;
 import tijos.framework.util.Delay;
+import tijos.framework.util.Formatter;
 
 /**
  * Plantower PMS7003 dust sensor driver for TiJOS
@@ -13,12 +16,10 @@ import tijos.framework.util.Delay;
  */
 public class TiPMS7003 {
 
-	private static final int FRAME_LEN = 32;
-
 	/**
 	 * UART
 	 */
-	private TiUART uartObj = null;
+	InputStream input = null;
 
 	/**
 	 * GPIO
@@ -26,11 +27,6 @@ public class TiPMS7003 {
 	private TiGPIO gpioPort = null;
 
 	int gpioSetPin = 0;
-
-	/**
-	 * buffer for one package data
-	 */
-	byte[] dataBuffer = new byte[FRAME_LEN];
 
 	/**
 	 * parsed PM data
@@ -45,10 +41,10 @@ public class TiPMS7003 {
 	 * @param setPin
 	 */
 	public TiPMS7003(TiUART uart, TiGPIO gpio, int setPin) {
-		this.uartObj = uart;
 		this.gpioPort = gpio;
 		this.gpioSetPin = setPin;
 
+		this.input = new BufferedInputStream(new TiUartInputStream(uart), 256);
 	}
 
 	/**
@@ -84,7 +80,7 @@ public class TiPMS7003 {
 	 * @return
 	 */
 	public int getPM1() {
-		return DATA[4];
+		return DATA[3];
 	}
 
 	/**
@@ -93,7 +89,7 @@ public class TiPMS7003 {
 	 * @return
 	 */
 	public int getPM2_5() {
-		return DATA[5];
+		return DATA[4];
 	}
 
 	/**
@@ -102,7 +98,7 @@ public class TiPMS7003 {
 	 * @return
 	 */
 	public int getPM10() {
-		return DATA[6];
+		return DATA[5];
 	}
 
 	/**
@@ -112,101 +108,90 @@ public class TiPMS7003 {
 	 */
 	public void measure() throws IOException {
 
-		byte[] ioBuffer = new byte[FRAME_LEN];
-		int total = 0;
-
-		while (true) {
-			// find the data head
-			int dataLen = this.uartObj.read(ioBuffer, 0, FRAME_LEN);
-			// System.out.println("data len " + dataLen);
-			if (dataLen > 0) {
-
-				// head
-				for (int i = 0; i < dataLen; i++) {
-					if (ioBuffer[i] == 0x42 && ioBuffer[i + 1] == 0x4d) {
-						int available = dataLen - i;
-						System.arraycopy(ioBuffer, i, this.dataBuffer, total, available);
-						total = available;
-						break;
-					}
+		int lastData = 0;
+		int timeOut = 5000; //5 seconds timeout 
+		while (timeOut > 0) {
+			try {
+				Delay.msDelay(10);
+				timeOut -= 10;
+				int val = input.read();
+				if (val <= 0) {
+					continue;
 				}
-
-				// enough data for one package
-				if (total >= FRAME_LEN) {
-					process();
-					return;
-				}
-
-				// read left data
-				int counter = 100;
-				while (total < FRAME_LEN) {
-					int left = FRAME_LEN - total;
-
-					dataLen = this.uartObj.read(ioBuffer, 0, left);
-					if (dataLen == 0) {
-						counter--;
-						if (counter <= 0) {
-							throw new IOException("No more data arrived.");
-						}
-
+				
+				if(lastData == 0x42 && val == 0x4d) {
+					
+					while (input.available() < 30 && timeOut > 0) {
 						Delay.msDelay(10);
+						timeOut -= 10;
+						continue;
+					}
+					
+					int lenH = input.read();
+					int lenL = input.read();
+					int len = lenH * 256 + lenL;
+
+					System.out.println("len " + len);
+					if (len != 2 * 13 + 2) {
+						lastData = lenL;
 						continue;
 					}
 
-					System.arraycopy(ioBuffer, 0, this.dataBuffer, total, dataLen);
-					total += dataLen;
-				}
+					byte[] data = new byte[len];
+					input.read(data);
 
-				// enough data for one package
-				process();
-				return;
+					int initValue = lastData + val + lenH + lenL;
+					int sum1 = calCheckSum(initValue, data, 0, len - 2);
+					int sum2 = BigBitConverter.ToUInt16(data, len - 2) & 0x00FF;
+
+					if (sum1 != sum2) {
+						// invalid data clear
+
+						System.out.println("Invalid Verification Code " + sum1 + " : " + sum2);						
+						lastData = 0;
+						continue;
+					}
+
+					System.out.println("Time " + timeOut + " PM Data " + Formatter.toHexString(data));
+					// Data Part
+					for (int i = 0; i < 13; i++) {
+						DATA[i] = BigBitConverter.ToUInt16(data, i * 2);
+					}
+				
+					return;
+				}
+				else {
+					lastData = val;
+				}
+				
+			} catch (Exception ex) {
+				ex.printStackTrace();
 			}
 		}
-	}
-
-	/**
-	 * Parse the data to get the PM values
-	 * 
-	 * @throws IOException
-	 */
-	private void process() throws IOException {
-
-		int length = BigBitConverter.ToUInt16(this.dataBuffer, 2);
-
-		// invalid data, clear
-		if (length != FRAME_LEN - 4) {
-			throw new IOException("Invalid data length " + length);
-		}
-
-		int SUM = BigBitConverter.ToUInt16(this.dataBuffer, FRAME_LEN - 2);
-		int sum = sum(this.dataBuffer, 0, FRAME_LEN - 2);
-		if (SUM != sum) {
-			// invalid data clear
-			throw new IOException("Invalid Verification Code " + SUM + " : " + sum);
-		}
-
-		// Data Part
-		for (int i = 0; i < 13; i++) {
-			DATA[i] = BigBitConverter.ToUInt16(this.dataBuffer, i * 2 + 4);
-		}
+		
+		throw new IOException("UART timeout.");
 
 	}
 
 	/**
-	 * Calculate check sum
+	 * Checksum calculation
 	 * 
-	 * @param buffer
-	 * @param offset
+	 * @param initalValue
+	 *            initialize value
+	 * @param buf
+	 * @param start
 	 * @param len
-	 * @return
+	 * @return Checksum
 	 */
-	private int sum(byte[] buffer, int offset, int len) {
-		int sum = 0;
+	public static int calCheckSum(int initalValue, byte[] buf, int start, int len) {
+		int sum = initalValue;
+		int i = 0;
 
-		for (int i = 0; i < len; i++) {
-			sum += (buffer[offset + i] & 0xFF);
+		for (i = start; i < start + len; i++) {
+			sum += buf[i];
 		}
 
-		return sum & 0xFFFF;
+		return (sum & 0x00FF);
 	}
+
 }
